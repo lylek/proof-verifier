@@ -189,42 +189,37 @@ verify' Inference {..} = do
     case rule of
         TruthIntro -> do
             () <- noPremises "TruthIntro" premises
-            if conclusion == Truth
-                then mergeAllAssumptionState
-                else Left $ T.append "Invalid conclusion for TruthIntro: " $ T.pack $ show conclusion
+            assert (conclusion == Truth) $ T.append
+                "Invalid conclusion for TruthIntro: " $ T.pack $ show conclusion
+            mergeAllAssumptionState
         FalseElim -> do
             p <- onePremise "FalseElim" premises
-            case p of
-                Falsehood -> mergeAllAssumptionState
-                _ -> Left "FalseElim's premise should be Falsehood"
+            assert (p == Falsehood) $ "FalseElim's premise should be Falsehood"
+            mergeAllAssumptionState
         AndIntro -> do
             (p1, p2) <- twoPremises "AndIntro" premises
-            if conclusion == p1 :&: p2
-                then mergeAllAssumptionState
-                else Left "Conclusion of AndIntro is not conjunction of premises"
+            assert (conclusion == p1 :&: p2) $ "Conclusion of AndIntro is not conjunction of premises"
+            mergeAllAssumptionState
         AndElimLeft -> do
             p <- onePremise "AndElimLeft" premises
             case p of
-                pl :&: _ ->
-                    if conclusion == pl
-                        then mergeAllAssumptionState
-                        else Left "Conclusion of AndElimLeft should be left side of premise"
+                pl :&: _ -> do
+                    assert (conclusion == pl) $ "Conclusion of AndElimLeft should be left side of premise"
+                    mergeAllAssumptionState
                 _ -> Left "Premise of AndElimLeft should be a conjunction"
         AndElimRight -> do
             p <- onePremise "AndElimRight" premises
             case p of
-                _ :&: pr ->
-                    if conclusion == pr
-                        then mergeAllAssumptionState
-                        else Left "Conclusion of AndElimRight should be right side of premise"
+                _ :&: pr -> do
+                    assert (conclusion == pr) $ "Conclusion of AndElimRight should be right side of premise"
+                    mergeAllAssumptionState
                 _ -> Left "Premise of AndElimRight should be a conjunction"
         OrIntroLeft -> do
             p <- onePremise "OrIntroLeft" premises
             case conclusion of
-                (cl :|: _) ->
-                    if cl == p
-                        then mergeAllAssumptionState
-                        else Left "In OrIntroLeft, left side of conclusion should match premise"
+                (cl :|: _) -> do
+                    assert (cl == p) $ "In OrIntroLeft, left side of conclusion should match premise"
+                    mergeAllAssumptionState
                 _ -> Left "In OrIntroLeft, conclusion should be a disjunction"
         OrIntroRight -> do
             p <- onePremise "OrIntroRight" premises
@@ -241,52 +236,46 @@ verify' Inference {..} = do
                     assert (c1 == c2) "In OrElim, second and third premises must match"
                     assert (c1 == conclusion) "In OrElim, second and third premises must match conclusion"
                     let [as0, as1, as2] = assumptionsPerAntecedent
-                    case Map.lookup l (notYetCanceled as1) of
-                        Nothing -> Left $ T.concat
-                            [ "In second antecedent of OrElim, did not find an assumption with label "
-                            , T.pack $ show l
-                            ]
-                        Just a1 -> do
-                            assert (dl == a1) $ T.concat
-                                [ "In OrElim with label "
-                                , T.pack $ show l
-                                , ", left side of disjunction must match assumption in second antecedent with that label"
-                                ]
-                            case Map.lookup l (notYetCanceled as2) of
-                                Nothing -> Left $ T.concat
-                                    [ "In third antecedent of OrElim, did not find an assumption with label "
-                                    , T.pack $ show l
-                                    ]
-                                Just a2 -> do
-                                    assert (dr == a2) $ T.concat
-                                        [ "In OrElim with label "
-                                        , T.pack $ show l
-                                        , ", right side of disjunction must match assumption in third antecedent with that label"
-                                        ]
-                                    let as1' = as1 { notYetCanceled = Map.delete l $ notYetCanceled as1 }
-                                        as2' = as2 { notYetCanceled = Map.delete l $ notYetCanceled as2 }
-                                    ms <- mergeAssumptionState (traceShowId [as0, as1', as2'])
-                                    pure ms { canceledLabels = Set.insert l $ canceledLabels ms }
+                    a1 <- assertJust (Map.lookup l (notYetCanceled as1)) $ T.concat
+                        [ "In second antecedent of OrElim, did not find an assumption with label "
+                        , T.pack $ show l
+                        ]
+                    assert (dl == a1) $ T.concat
+                        [ "In OrElim with label "
+                        , T.pack $ show l
+                        , ", left side of disjunction must match assumption in second antecedent with that label"
+                        ]
+                    a2 <- assertJust (Map.lookup l (notYetCanceled as2)) $ T.concat
+                        [ "In third antecedent of OrElim, did not find an assumption with label "
+                        , T.pack $ show l
+                        ]
+                    assert (dr == a2) $ T.concat
+                        [ "In OrElim with label "
+                        , T.pack $ show l
+                        , ", right side of disjunction must match assumption in third antecedent with that label"
+                        ]
+                    let as1' = as1 { notYetCanceled = Map.delete l $ notYetCanceled as1 }
+                        as2' = as2 { notYetCanceled = Map.delete l $ notYetCanceled as2 }
+                    ms <- mergeAssumptionState (traceShowId [as0, as1', as2'])
+                    pure ms { canceledLabels = Set.insert l $ canceledLabels ms }
                 _ -> Left "In OrElim, first premise must be a disjunction"
         ImpIntro l -> do
             p <- onePremise "ImpIntro" premises
             let [as] = assumptionsPerAntecedent
-            case Map.lookup l (notYetCanceled as) of
-                (Just a) ->
-                    case conclusion of
-                        (cl :->: cr) -> do
-                            assert (a == cl) "In ImpIntro, assumption to cancel must match left side of conclusion"
-                            assert (p == cr) "In ImpIntro, premise must match right side of conclusion"
-                            pure $ AssumptionState
-                               { neverCanceled = neverCanceled as
-                               , notYetCanceled = Map.delete l $ notYetCanceled as
-                               , canceledLabels = Set.insert l $ canceledLabels as
-                               }
-                        _ -> Left "In ImpIntro, conclusion must be an implication"
-                _ -> Left $ T.concat
-                        [ "In ImpIntro, did not find a preceding assumption with label "
-                        , T.pack $ show l
-                        ]
+            a <- assertJust (Map.lookup l (notYetCanceled as)) $ T.concat
+                [ "In ImpIntro, did not find a preceding assumption with label "
+                , T.pack $ show l
+                ]
+            case conclusion of
+                (cl :->: cr) -> do
+                    assert (a == cl) "In ImpIntro, assumption to cancel must match left side of conclusion"
+                    assert (p == cr) "In ImpIntro, premise must match right side of conclusion"
+                    pure $ AssumptionState
+                       { neverCanceled = neverCanceled as
+                       , notYetCanceled = Map.delete l $ notYetCanceled as
+                       , canceledLabels = Set.insert l $ canceledLabels as
+                       }
+                _ -> Left "In ImpIntro, conclusion must be an implication"
         ImpElim -> do
             (p1, p2) <- twoPremises "ImpElim" premises
             case p1 of
@@ -325,3 +314,7 @@ threePremises ruleName premises =
 
 assert :: Bool -> Text -> Either VerificationError ()
 assert b msg = unless b $ Left msg
+
+assertJust :: Maybe a -> Text -> Either VerificationError a
+assertJust Nothing msg = Left msg
+assertJust (Just v) _ = Right v
