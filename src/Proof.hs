@@ -17,8 +17,7 @@ type Sym = Text
 type Label = Int
 
 data Formula =
-    Var Sym
-    | Truth
+    Truth
     | Falsehood
     | Formula :&: Formula
     | Formula :|: Formula
@@ -27,10 +26,18 @@ data Formula =
     | Not Formula
     | ForAll Sym Formula
     | Exists Sym Formula
-    | Formula :=: Formula
+    | Term :=: Term
+    | Rel Sym [Term]
+    deriving (Eq, Show, Ord)
+
+-- Propositional variables are just unary relations
+pvar :: Sym -> Formula
+pvar v = Rel v []
+
+data Term =
+    Var Sym
     | Const Sym
-    | Func Sym [Formula]
-    | Rel Sym [Formula]
+    | Func Sym [Term]
     deriving (Eq, Show, Ord)
 
 data Sequent = Sequent
@@ -39,29 +46,36 @@ data Sequent = Sequent
     }
     deriving (Eq, Show)
 
-freeVars :: Formula -> Set Sym
-freeVars f =
-    freeVars' Set.empty f
-    where
-        freeVars' boundVars f =
-            case f of
-                Var v ->
-                    if Set.member v boundVars
-                        then Set.empty
-                        else Set.singleton v
-                Truth -> Set.empty
-                Falsehood -> Set.empty
-                f1 :&: f2 -> Set.union (freeVars' boundVars f1) (freeVars' boundVars f2)
-                f1 :|: f2 -> Set.union (freeVars' boundVars f1) (freeVars' boundVars f2)
-                f1 :->: f2 -> Set.union (freeVars' boundVars f1) (freeVars' boundVars f2)
-                f1 :<->: f2 -> Set.union (freeVars' boundVars f1) (freeVars' boundVars f2)
-                Not f1 -> freeVars' boundVars f1
-                ForAll v f1 -> freeVars' (Set.insert v boundVars) f1
-                Exists v f1 -> freeVars' (Set.insert v boundVars) f1
-                f1 :=: f2 -> Set.union (freeVars' boundVars f1) (freeVars' boundVars f2)
-                Const _ -> Set.empty
-                Func _ fs -> Set.unions $ map (freeVars' boundVars) fs
-                Rel _ fs -> Set.unions $ map (freeVars' boundVars) fs
+freeVarsInFormula :: Formula -> Set Sym
+freeVarsInFormula f = freeVarsInFormula' Set.empty f
+
+freeVarsInFormula' :: Set Sym -> Formula -> Set Sym
+freeVarsInFormula' boundVars f =
+    case f of
+        Truth -> Set.empty
+        Falsehood -> Set.empty
+        f1 :&: f2 -> Set.union (freeVarsInFormula' boundVars f1) (freeVarsInFormula' boundVars f2)
+        f1 :|: f2 -> Set.union (freeVarsInFormula' boundVars f1) (freeVarsInFormula' boundVars f2)
+        f1 :->: f2 -> Set.union (freeVarsInFormula' boundVars f1) (freeVarsInFormula' boundVars f2)
+        f1 :<->: f2 -> Set.union (freeVarsInFormula' boundVars f1) (freeVarsInFormula' boundVars f2)
+        Not f1 -> freeVarsInFormula' boundVars f1
+        ForAll v f1 -> freeVarsInFormula' (Set.insert v boundVars) f1
+        Exists v f1 -> freeVarsInFormula' (Set.insert v boundVars) f1
+        f1 :=: f2 -> Set.union (freeVarsInTerm' boundVars f1) (freeVarsInTerm' boundVars f2)
+        Rel _ fs -> Set.unions $ map (freeVarsInTerm' boundVars) fs
+
+freeVarsInTerm :: Term -> Set Sym
+freeVarsInTerm t = freeVarsInTerm' Set.empty t
+
+freeVarsInTerm' :: Set Sym -> Term -> Set Sym
+freeVarsInTerm' boundVars t =
+    case t of
+        Var v ->
+            if Set.member v boundVars
+                then Set.empty
+                else Set.singleton v
+        Const _ -> Set.empty
+        Func _ fs -> Set.unions $ map (freeVarsInTerm' boundVars) fs
 
 data Rule
     = TruthIntro
@@ -350,7 +364,12 @@ verify' Inference {..} = do
                     assert (p1l == conclusion) "In IffElimRight, conclusion must match left side of first premise"
                     mergeAllAssumptionState
                 _ -> Left "In IffElimRight, first premise must be a bi-implication"
-        ForAllIntro -> undefined
+        ForAllIntro -> do
+            p <- onePremise "ForAllIntro" premises
+            let [as] = assumptionsPerAntecedent
+            case conclusion of
+                (ForAll v f) -> undefined
+                _ -> Left "In ForAllIntro, conclusion must be a universal quantification"
         ForAllElim -> undefined
         ExistsIntro -> undefined
         ExistsElim l -> undefined

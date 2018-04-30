@@ -7,12 +7,12 @@ import Proof
 main :: IO ()
 main = do
     print f1
-    print $ freeVars f1
+    print $ freeVarsInFormula f1
     print $ verify curryDerivation
     print $ verify orElim
 
 f1 :: Formula
-f1 = Var "y" :&: (ForAll "x" $ Var "x" :=: Var "x")
+f1 = pvar "A" :&: (ForAll "x" $ Var "x" :=: Var "x")
 
 d1 :: Derivation
 d1 =
@@ -21,15 +21,15 @@ d1 =
             [ Inference
                 { antecedents =
                     [ Assumption
-                        { formula = Var "a" :&: Var "b"
+                        { formula = pvar "A" :&: pvar "B"
                         , cancellationLabel = Just 1
                         }
                     ]
-                , conclusion = Var "a"
+                , conclusion = pvar "A"
                 , rule = AndElimLeft
                 }
             ]
-        , conclusion = (Var "a" :&: Var "b") :->: Var "a"
+        , conclusion = (pvar "A" :&: pvar "B") :->: pvar "A"
         , rule = ImpIntro 1
         }
 
@@ -42,23 +42,23 @@ curryDerivation =
                     [ Inference
                         { antecedents =
                             [ Assumption
-                                { formula = Var "a"
+                                { formula = pvar "A"
                                 , cancellationLabel = Just 2
                                 }
                             , Assumption
-                                { formula = Var "b"
+                                { formula = pvar "B"
                                 , cancellationLabel = Just 1
                                 }
                             ]
-                        , conclusion = Var "a" :&: Var "b"
+                        , conclusion = pvar "A" :&: pvar "B"
                         , rule = AndIntro
                         }
                     ]
-                , conclusion = Var "b" :->: (Var "a" :&: Var "b")
+                , conclusion = pvar "B" :->: (pvar "A" :&: pvar "B")
                 , rule = ImpIntro 1
                 }
             ]
-        , conclusion = Var "a" :->: (Var "b" :->: (Var "a" :&: Var "b"))
+        , conclusion = pvar "A" :->: (pvar "B" :->: (pvar "A" :&: pvar "B"))
         , rule = ImpIntro 2
         }
 
@@ -67,7 +67,7 @@ orElim =
     Inference
         { antecedents =
             [ Assumption
-                { formula = Var "a" :|: Var "b"
+                { formula = pvar "A" :|: pvar "B"
                 , cancellationLabel = Nothing
                 }
             , Inference
@@ -75,19 +75,19 @@ orElim =
                     [ Inference
                         { antecedents =
                             [ Assumption
-                                { formula = Var "a" :->: Var "c"
+                                { formula = pvar "A" :->: pvar "C"
                                 , cancellationLabel = Nothing
                                 }
                             , Assumption
-                                { formula = Var "a"
+                                { formula = pvar "A"
                                 , cancellationLabel = Just 1
                                 }
                             ]
-                        , conclusion = Var "c"
+                        , conclusion = pvar "C"
                         , rule = ImpElim
                         }
                     ]
-                , conclusion = Var "c" :|: Var "d"
+                , conclusion = pvar "C" :|: pvar "D"
                 , rule = OrIntroLeft
                 }
             , Inference
@@ -95,22 +95,22 @@ orElim =
                     [ Inference
                         { antecedents =
                             [ Assumption
-                                { formula = Var "b" :->: Var "d"
+                                { formula = pvar "B" :->: pvar "C"
                                 , cancellationLabel = Nothing
                                 }
                             , Assumption
-                                { formula = Var "b"
+                                { formula = pvar "B"
                                 , cancellationLabel = Just 1
                                 }
                             ]
-                        , conclusion = Var "d"
+                        , conclusion = pvar "D"
                         , rule = ImpElim
                         }
                     ]
-                , conclusion = Var "c" :|: Var "d"
+                , conclusion = pvar "C" :|: pvar "D"
                 , rule = OrIntroRight
                 }
             ]
-        , conclusion = Var "c" :|: Var "d"
+        , conclusion = pvar "C" :|: pvar "D"
         , rule = OrElim 1
         }
