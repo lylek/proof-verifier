@@ -286,7 +286,20 @@ verify' Inference {..} = do
                             else Left "In ImpElim, right side of implication must match conclusion"
                         else Left "In ImpElim, left side of implication must match second premise"
                 _ -> Left "In ImpElim, first premise must be an implication"
-        _ -> mergeAllAssumptionState
+        IffIntro l -> undefined
+        NotIntro l -> undefined
+        RAA l -> undefined
+        IffElimLeft -> undefined
+        IffElimRight -> undefined
+        ForAllIntro -> undefined
+        ForAllElim -> undefined
+        ExistsIntro -> undefined
+        ExistsElim l -> undefined
+        EqIntro -> undefined
+        EqElim -> undefined
+        EqSymmetric -> undefined
+        EqTransitive -> undefined
+        EqTerm -> undefined
 
 noPremises :: Text -> [Formula] -> Either VerificationError ()
 noPremises ruleName premises =
