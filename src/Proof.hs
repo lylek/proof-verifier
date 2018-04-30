@@ -482,7 +482,7 @@ mergeMatches var (Just t1) (Just t2) =
         then return (Just t1)
         else Left $ T.concat
             [ "Variable "
-            , T.pack $ show var
+            , var
             , " is matched against different terms"
             ]
 mergeMatches _ mt1 Nothing = return mt1
