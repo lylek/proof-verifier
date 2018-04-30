@@ -308,8 +308,32 @@ verify' Inference {..} = do
                     ms <- mergeAssumptionState [as1', as2']
                     pure ms { canceledLabels = Set.insert l $ canceledLabels ms }
                 _ -> Left "In IffIntro, conclusion must be a a bi-implication"
-        NotIntro l -> undefined
-        RAA l -> undefined
+        NotIntro l -> do
+            p <- onePremise "NotIntro" premises
+            assert (p == Falsehood) $ "Premise in NotIntro must be Falsehood"
+            let [as] = assumptionsPerAntecedent
+            a <- assertJust (Map.lookup l (notYetCanceled as)) $ T.concat
+                [ "In NotIntro, did not find a preceding assumption with label "
+                , T.pack $ show l
+                ]
+            assert (conclusion == Not a) "In NotIntro, conclusion must be negation of assumption to cancel"
+            pure as
+                { notYetCanceled = Map.delete l $ notYetCanceled as
+                , canceledLabels = Set.insert l $ canceledLabels as
+                }
+        RAA l -> do
+            p <- onePremise "RAA" premises
+            assert (p == Falsehood) $ "Premise in RAA must be Falsehood"
+            let [as] = assumptionsPerAntecedent
+            a <- assertJust (Map.lookup l (notYetCanceled as)) $ T.concat
+                [ "In RAA, did not find a preceding assumption with label "
+                , T.pack $ show l
+                ]
+            assert (a == Not conclusion) "In RAA, assumption to cancel must be negation of conclusion"
+            pure as
+                { notYetCanceled = Map.delete l $ notYetCanceled as
+                , canceledLabels = Set.insert l $ canceledLabels as
+                }
         IffElimLeft -> undefined
         IffElimRight -> undefined
         ForAllIntro -> undefined
