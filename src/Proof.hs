@@ -256,7 +256,7 @@ verify' Inference {..} = do
                         ]
                     let as1' = as1 { notYetCanceled = Map.delete l $ notYetCanceled as1 }
                         as2' = as2 { notYetCanceled = Map.delete l $ notYetCanceled as2 }
-                    ms <- mergeAssumptionState (traceShowId [as0, as1', as2'])
+                    ms <- mergeAssumptionState [as0, as1', as2']
                     pure ms { canceledLabels = Set.insert l $ canceledLabels ms }
                 _ -> Left "In OrElim, first premise must be a disjunction"
         ImpIntro l -> do
