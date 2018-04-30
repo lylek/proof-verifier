@@ -410,56 +410,80 @@ assertJust :: Maybe a -> Text -> Either VerificationError a
 assertJust Nothing msg = Left msg
 assertJust (Just v) _ = Right v
 
-matchFormulas :: Sym -> Formula -> Formula -> Either VerificationError [Term]
+matchFormulas :: Sym -> Formula -> Formula -> Either VerificationError (Maybe Term)
 matchFormulas var quantifiedFormula formula =
     case (quantifiedFormula, formula) of
-        (Truth, Truth) -> return []
-        (Falsehood, Falsehood) -> return []
-        (qf1 :&: qf2, f1 :&: f2) ->
-            liftM2 (++) (matchFormulas var qf1 f1) (matchFormulas var qf2 f2)
-        (qf1 :|: qf2, f1 :|: f2) ->
-            liftM2 (++) (matchFormulas var qf1 f1) (matchFormulas var qf2 f2)
-        (qf1 :->: qf2, f1 :->: f2) ->
-            liftM2 (++) (matchFormulas var qf1 f1) (matchFormulas var qf2 f2)
-        (qf1 :<->: qf2, f1 :<->: f2) ->
-            liftM2 (++) (matchFormulas var qf1 f1) (matchFormulas var qf2 f2)
+        (Truth, Truth) -> return Nothing
+        (Falsehood, Falsehood) -> return Nothing
+        (qf1 :&: qf2, f1 :&: f2) -> do
+            m1 <- matchFormulas var qf1 f1
+            m2 <- matchFormulas var qf2 f2
+            mergeMatches var m1 m2
+        (qf1 :|: qf2, f1 :|: f2) -> do
+            m1 <- matchFormulas var qf1 f1
+            m2 <- matchFormulas var qf2 f2
+            mergeMatches var m1 m2
+        (qf1 :->: qf2, f1 :->: f2) -> do
+            m1 <- matchFormulas var qf1 f1
+            m2 <- matchFormulas var qf2 f2
+            mergeMatches var m1 m2
+        (qf1 :<->: qf2, f1 :<->: f2) -> do
+            m1 <- matchFormulas var qf1 f1
+            m2 <- matchFormulas var qf2 f2
+            mergeMatches var m1 m2
         (Not qf, Not f) -> matchFormulas var qf f
         (ForAll qv qf, ForAll v f) ->
             if qv == v
                 then
                     if var == qv
-                        then return [] -- the variable we are trying to match has been shadowed
+                        then return Nothing -- the variable we are trying to match has been shadowed
                         else matchFormulas var qf f
                 else Left "Mismatched universal quantifier variables in nested formulas"
         (Exists qv qf, Exists v f) ->
             if qv == v
                 then if var == qv
-                    then return [] -- the variable we are trying to match has been shadowed
+                    then return Nothing -- the variable we are trying to match has been shadowed
                     else matchFormulas var qf f
                 else Left "Mismatched existential quantifier variables in nested formulas"
-        (qt1 :=: qt2, t1 :=: t2) ->
-            liftM2 (++) (matchTerms var qt1 t1) (matchTerms var qt2 t2)
+        (qt1 :=: qt2, t1 :=: t2) -> do
+            m1 <- matchTerms var qt1 t1
+            m2 <- matchTerms var qt2 t2
+            mergeMatches var m1 m2
         (Rel qr qts, Rel r ts) -> do
             assert (qr == r) $ "Mismatched relation names in nested formulas"
             assert (length qts == length ts) $ "Mismatched relation argument list length in nested formulas"
-            fmap concat $ mapM (uncurry (matchTerms var)) $ zip qts ts
+            matches <- mapM (uncurry (matchTerms var)) $ zip qts ts
+            foldM (mergeMatches var) Nothing matches
         _ -> Left "Mismatched nested formulas"
 
-matchTerms :: Sym -> Term -> Term -> Either VerificationError [Term]
+matchTerms :: Sym -> Term -> Term -> Either VerificationError (Maybe Term)
 matchTerms var quantifiedTerm term =
     case (quantifiedTerm, term) of
         (Var v, t) ->
             if var == v
-                then return [t]
+                then return (Just t)
                 else case t of
                     (Var tv) -> do
                         assert (v == tv) $ "Mismatched variable terms in nested terms"
-                        return []
+                        return Nothing
         (Const qc, Const c) -> do
             assert (qc == c) $ "Mismatched constant terms in nested terms"
-            return []
+            return Nothing
         (Func qf qts, Func f ts) -> do
             assert (qf == f) $ "Mismatched function names in nested terms"
             assert (length qts == length ts) $ "Mismatched function argument list length in nested terms"
-            fmap concat $ mapM (uncurry (matchTerms var)) $ zip qts ts
+            matches <- mapM (uncurry (matchTerms var)) $ zip qts ts
+            foldM (mergeMatches var) Nothing matches
         _ -> Left "Mismatched nested terms"
+
+mergeMatches :: Sym -> Maybe Term -> Maybe Term -> Either VerificationError (Maybe Term)
+mergeMatches var (Just t1) (Just t2) =
+    if t1 == t2
+        then return (Just t1)
+        else Left $ T.concat
+            [ "Variable "
+            , T.pack $ show var
+            , " is matched against different terms"
+            ]
+mergeMatches _ mt1 Nothing = return mt1
+mergeMatches _ Nothing mt2 = return mt2
