@@ -286,7 +286,28 @@ verify' Inference {..} = do
                             else Left "In ImpElim, right side of implication must match conclusion"
                         else Left "In ImpElim, left side of implication must match second premise"
                 _ -> Left "In ImpElim, first premise must be an implication"
-        IffIntro l -> undefined
+        IffIntro l -> do
+            (p1, p2) <- twoPremises "IffIntro" premises
+            let [as1, as2] = assumptionsPerAntecedent
+            a1 <- assertJust (Map.lookup l (notYetCanceled as1)) $ T.concat
+                [ "In left branch of IffIntro, did not find a preceding assumption with label "
+                , T.pack $ show l
+                ]
+            a2 <- assertJust (Map.lookup l (notYetCanceled as2)) $ T.concat
+                [ "In right branch of IffIntro, did not find a preceding assumption with label "
+                , T.pack $ show l
+                ]
+            case conclusion of
+                (cl :<->: cr) -> do
+                    assert (a1 == cl) "In IffIntro, assumption to cancel in left branch must match left side of conclusion"
+                    assert (p1 == cr) "In IffIntro, left premise must match right side of conclusion"
+                    assert (a2 == cr) "In IffIntro, assumption to cancel in right branch must match right side of conclusion"
+                    assert (p2 == cl) "In IffIntro, right premise must match left side of conclusion"
+                    let as1' = as1 { notYetCanceled = Map.delete l $ notYetCanceled as1 }
+                        as2' = as2 { notYetCanceled = Map.delete l $ notYetCanceled as2 }
+                    ms <- mergeAssumptionState [as1', as2']
+                    pure ms { canceledLabels = Set.insert l $ canceledLabels ms }
+                _ -> Left "In IffIntro, conclusion must be a a bi-implication"
         NotIntro l -> undefined
         RAA l -> undefined
         IffElimLeft -> undefined
