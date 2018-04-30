@@ -334,8 +334,22 @@ verify' Inference {..} = do
                 { notYetCanceled = Map.delete l $ notYetCanceled as
                 , canceledLabels = Set.insert l $ canceledLabels as
                 }
-        IffElimLeft -> undefined
-        IffElimRight -> undefined
+        IffElimLeft -> do
+            (p1, p2) <- twoPremises "IffElimLeft" premises
+            case p1 of
+                (p1l :<->: p1r) -> do
+                    assert (p1l == p2) "In IffElimLeft, second premise must match left side of first premise"
+                    assert (p1r == conclusion) "In IffElimLeft, conclusion must match right side of first premise"
+                    mergeAllAssumptionState
+                _ -> Left "In IffElimLeft, first premise must be a bi-implication"
+        IffElimRight -> do
+            (p1, p2) <- twoPremises "IffElimRight" premises
+            case p1 of
+                (p1l :<->: p1r) -> do
+                    assert (p1r == p2) "In IffElimRight, second premise must match right side of first premise"
+                    assert (p1l == conclusion) "In IffElimRight, conclusion must match left side of first premise"
+                    mergeAllAssumptionState
+                _ -> Left "In IffElimRight, first premise must be a bi-implication"
         ForAllIntro -> undefined
         ForAllElim -> undefined
         ExistsIntro -> undefined
