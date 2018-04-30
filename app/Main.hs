@@ -10,9 +10,16 @@ main = do
     print $ freeVarsInFormula f1
     print $ verify curryDerivation
     print $ verify orElim
+    print $ matchFormulas "z" f3 f2
 
 f1 :: Formula
 f1 = pvar "A" :&: (ForAll "x" $ Var "x" :=: Var "x")
+
+f2 :: Formula
+f2 = (Var "x" :=: Var "t") :->: ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y"))
+
+f3 :: Formula
+f3 = (Var "x" :=: Var "z") :->: ((Var "y" :=: Var "z") :->: (Var "x" :=: Var "y"))
 
 d1 :: Derivation
 d1 =
@@ -95,7 +102,7 @@ orElim =
                     [ Inference
                         { antecedents =
                             [ Assumption
-                                { formula = pvar "B" :->: pvar "C"
+                                { formula = pvar "B" :->: pvar "D"
                                 , cancellationLabel = Nothing
                                 }
                             , Assumption
