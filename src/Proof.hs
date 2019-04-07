@@ -368,15 +368,81 @@ verify' Inference {..} = do
             p <- onePremise "ForAllIntro" premises
             let [as] = assumptionsPerAntecedent
             case conclusion of
-                (ForAll v f) -> undefined
+                (ForAll v qf) -> do
+                    mt <- matchFormulas v qf p
+                    case mt of
+                        Nothing -> return as -- v does not appear free in qf
+                        (Just (Var t)) -> do
+                            let uas = Map.elems $ notYetCanceled as
+                            let fvs = Set.unions $ map freeVarsInFormula uas
+                            assert (Set.notMember t fvs) $ T.concat
+                                [ "In ForAllIntro, matched variable in premise "
+                                , t
+                                , " appears free in an uncanceled assumption"
+                                ]
+                            assert (Set.notMember t (freeVarsInFormula qf)) $ T.concat
+                                [ "In ForAllIntro, matched variable in premise "
+                                , t
+                                , " appears free in quantified formula in conclusion"
+                                ]
+                            return as
+                        -- allow match against a constant in premise?
+                        (Just _) -> Left $ T.concat
+                            [ "In ForAllIntro, quantified variable "
+                            , v
+                            , " does not match a simple variable in the premise"
+                            ]
                 _ -> Left "In ForAllIntro, conclusion must be a universal quantification"
         ForAllElim -> undefined
         ExistsIntro -> undefined
         ExistsElim l -> undefined
-        EqIntro -> undefined
+        EqIntro -> do
+            () <- noPremises "EqIntro" premises
+            case conclusion of
+                t1 :=: t2 -> do
+                    assert (t1 == t2) $
+                        "In EqIntro, left and right sides of conclusion must be identical"
+                    mergeAllAssumptionState
+                _ -> Left "In EqIntro, conclusion must be an equality"
         EqElim -> undefined
-        EqSymmetric -> undefined
-        EqTransitive -> undefined
+        EqSymmetric -> do
+            p <- onePremise "EqSymmetric" premises
+            case (p, conclusion) of
+                (pl :=: pr, cl :=: cr) -> do
+                    assert (pl == cr) $ T.concat
+                        [ "In EqSymmetric, left side of premise must match"
+                        , " right side of conclusion"
+                        ]
+                    assert (pr == cl) $ T.concat
+                        [ "In EqSymmetric, right side of premise must match"
+                        , " left side of conclusion"
+                        ]
+                    mergeAllAssumptionState
+                _ -> Left $ T.concat
+                        [ "In EqSymmetric, both premise and conclusion must"
+                        , " be equalities"
+                        ]
+        EqTransitive -> do
+            (p1, p2) <- twoPremises "EqTransitive" premises
+            case (p1, p2, conclusion) of
+                (p1l :=: p1r, p2l :=: p2r, cl :=: cr) -> do
+                    assert (p1l == cl) $ T.concat
+                        [ "In EqTransitive, left side of first premise"
+                        , " must match left side of conclusion"
+                        ]
+                    assert (p1r == p2l) $ T.concat
+                        [ "In EqTransitive, right side of first premise"
+                        , " must match left side of second premise"
+                        ]
+                    assert (p2r == cr) $ T.concat
+                        [ "In EqTransitive, right side of second premise"
+                        , " must match right side of conclusion"
+                        ]
+                    mergeAllAssumptionState
+                _ -> Left $ T.concat
+                    [ "In EqTransitive, both premises and conclusion"
+                    , " must be equalities"
+                    ]
         EqTerm -> undefined
 
 noPremises :: Text -> [Formula] -> Either VerificationError ()
@@ -412,56 +478,65 @@ assertJust (Just v) _ = Right v
 
 matchFormulas :: Sym -> Formula -> Formula -> Either VerificationError (Maybe Term)
 matchFormulas var quantifiedFormula formula =
-    case (quantifiedFormula, formula) of
-        (Truth, Truth) -> return Nothing
-        (Falsehood, Falsehood) -> return Nothing
-        (qf1 :&: qf2, f1 :&: f2) -> do
-            m1 <- matchFormulas var qf1 f1
-            m2 <- matchFormulas var qf2 f2
-            mergeMatches var m1 m2
-        (qf1 :|: qf2, f1 :|: f2) -> do
-            m1 <- matchFormulas var qf1 f1
-            m2 <- matchFormulas var qf2 f2
-            mergeMatches var m1 m2
-        (qf1 :->: qf2, f1 :->: f2) -> do
-            m1 <- matchFormulas var qf1 f1
-            m2 <- matchFormulas var qf2 f2
-            mergeMatches var m1 m2
-        (qf1 :<->: qf2, f1 :<->: f2) -> do
-            m1 <- matchFormulas var qf1 f1
-            m2 <- matchFormulas var qf2 f2
-            mergeMatches var m1 m2
-        (Not qf, Not f) -> matchFormulas var qf f
-        (ForAll qv qf, ForAll v f) ->
-            if qv == v
-                then
-                    if var == qv
-                        then return Nothing -- the variable we are trying to match has been shadowed
-                        else matchFormulas var qf f
-                else Left "Mismatched universal quantifier variables in nested formulas"
-        (Exists qv qf, Exists v f) ->
-            if qv == v
-                then if var == qv
-                    then return Nothing -- the variable we are trying to match has been shadowed
-                    else matchFormulas var qf f
-                else Left "Mismatched existential quantifier variables in nested formulas"
-        (qt1 :=: qt2, t1 :=: t2) -> do
-            m1 <- matchTerms var qt1 t1
-            m2 <- matchTerms var qt2 t2
-            mergeMatches var m1 m2
-        (Rel qr qts, Rel r ts) -> do
-            assert (qr == r) $ "Mismatched relation names in nested formulas"
-            assert (length qts == length ts) $ "Mismatched relation argument list length in nested formulas"
-            matches <- mapM (uncurry (matchTerms var)) $ zip qts ts
-            foldM (mergeMatches var) Nothing matches
-        _ -> Left "Mismatched nested formulas"
+    match' Set.empty quantifiedFormula formula
+    where
+        match' boundVars qf f =
+            case (qf, f) of
+                (Truth, Truth) -> return Nothing
+                (Falsehood, Falsehood) -> return Nothing
+                (qf1 :&: qf2, f1 :&: f2) -> do
+                    m1 <- match' boundVars qf1 f1
+                    m2 <- match' boundVars qf2 f2
+                    mergeMatches var m1 m2
+                (qf1 :|: qf2, f1 :|: f2) -> do
+                    m1 <- match' boundVars qf1 f1
+                    m2 <- match' boundVars qf2 f2
+                    mergeMatches var m1 m2
+                (qf1 :->: qf2, f1 :->: f2) -> do
+                    m1 <- match' boundVars qf1 f1
+                    m2 <- match' boundVars qf2 f2
+                    mergeMatches var m1 m2
+                (qf1 :<->: qf2, f1 :<->: f2) -> do
+                    m1 <- match' boundVars qf1 f1
+                    m2 <- match' boundVars qf2 f2
+                    mergeMatches var m1 m2
+                (Not qf, Not f) -> match' boundVars qf f
+                (ForAll qv qf, ForAll v f) ->
+                    if qv == v
+                        then
+                            if var == qv
+                                then return Nothing -- the variable we are trying to match has been shadowed
+                                else match' (Set.insert qv boundVars) qf f
+                        else Left "Mismatched universal quantifier variables in nested formulas"
+                (Exists qv qf, Exists v f) ->
+                    if qv == v
+                        then if var == qv
+                            then return Nothing -- the variable we are trying to match has been shadowed
+                            else match' (Set.insert qv boundVars) qf f
+                        else Left "Mismatched existential quantifier variables in nested formulas"
+                (qt1 :=: qt2, t1 :=: t2) -> do
+                    m1 <- matchTerms var boundVars qt1 t1
+                    m2 <- matchTerms var boundVars qt2 t2
+                    mergeMatches var m1 m2
+                (Rel qr qts, Rel r ts) -> do
+                    assert (qr == r) $ "Mismatched relation names in nested formulas"
+                    assert (length qts == length ts) $ "Mismatched relation argument list length in nested formulas"
+                    matches <- mapM (uncurry (matchTerms var boundVars)) $ zip qts ts
+                    foldM (mergeMatches var) Nothing matches
+                _ -> Left "Mismatched nested formulas"
 
-matchTerms :: Sym -> Term -> Term -> Either VerificationError (Maybe Term)
-matchTerms var quantifiedTerm term =
+matchTerms :: Sym -> Set Sym -> Term -> Term -> Either VerificationError (Maybe Term)
+matchTerms var boundVars quantifiedTerm term =
     case (quantifiedTerm, term) of
-        (Var v, t) ->
+        (Var v, t) -> do
             if var == v
-                then return (Just t)
+                then
+                    case t of
+                        (Var tv) -> do
+                            assert (not (Set.member tv boundVars)) $ "Quantified variable cannot match a bound variable"
+                            return (Just t)
+                        (Const _) -> return $ Just t
+                        _ -> Left "In forall introduction, quantified variable cannot match a compound term"
                 else case t of
                     (Var tv) -> do
                         assert (v == tv) $ "Mismatched variable terms in nested terms"
@@ -472,7 +547,7 @@ matchTerms var quantifiedTerm term =
         (Func qf qts, Func f ts) -> do
             assert (qf == f) $ "Mismatched function names in nested terms"
             assert (length qts == length ts) $ "Mismatched function argument list length in nested terms"
-            matches <- mapM (uncurry (matchTerms var)) $ zip qts ts
+            matches <- mapM (uncurry (matchTerms var boundVars)) $ zip qts ts
             foldM (mergeMatches var) Nothing matches
         _ -> Left "Mismatched nested terms"
 

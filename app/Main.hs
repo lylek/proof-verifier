@@ -10,7 +10,9 @@ main = do
     print $ freeVarsInFormula f1
     print $ verify curryDerivation
     print $ verify orElim
-    print $ matchFormulas "z" f3 f2
+    print $ matchFormulas "z" f3 f2 -- this is not a valid forall introduction
+    print $ matchFormulas "z" f5 f4
+    print $ verify breakRule5
 
 f1 :: Formula
 f1 = pvar "A" :&: (ForAll "x" $ Var "x" :=: Var "x")
@@ -19,7 +21,28 @@ f2 :: Formula
 f2 = (Var "x" :=: Var "t") :->: ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y"))
 
 f3 :: Formula
-f3 = (Var "x" :=: Var "z") :->: ((Var "y" :=: Var "z") :->: (Var "x" :=: Var "y"))
+f3 = (Var "x" :=: Var "z") :->: ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y"))
+
+-- forall introduction:
+--  1) match quantified variable with terms
+--  2) matched term must be the same each time it's matched
+--  3) ignore shadowed occurrences as they are not the same variable
+--  4) matched term must be a constant or variable
+--  5) all free occurrences of matched term must be matched
+--     in other words, the matched term must not appear free
+--     in the quantified formula
+
+-- An invalid inference - breaks rule #5
+--            x = t -> y = t -> x = y
+-- forall z . x = z -> y = t -> x = y
+
+f4 :: Formula
+f4 = (Var "x" :=: Var "t") :->: (ForAll "t" ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y")))
+
+-- does not match the above, because in f5, the second z is still free, but in f4, the second t
+-- is captured by a forall
+f5 :: Formula
+f5 = (Var "x" :=: Var "z") :->: (ForAll "t" ((Var "y" :=: Var "z") :->: (Var "x" :=: Var "y")))
 
 d1 :: Derivation
 d1 =
@@ -38,6 +61,47 @@ d1 =
             ]
         , conclusion = (pvar "A" :&: pvar "B") :->: pvar "A"
         , rule = ImpIntro 1
+        }
+
+breakRule5 :: Derivation
+breakRule5 =
+    Inference
+        { antecedents =
+            [ Inference
+                { antecedents =
+                    [ Inference
+                        { antecedents =
+                            [ Inference
+                                { antecedents =
+                                    [ Assumption
+                                        { formula = Var "x" :=: Var "t"
+                                        , cancellationLabel = Just 2
+                                        }
+                                    , Inference
+                                        { antecedents =
+                                            [ Assumption
+                                                { formula = Var "y" :=: Var "t"
+                                                , cancellationLabel = Just 1
+                                                }
+                                            ]
+                                        , conclusion = Var "t" :=: Var "y"
+                                        , rule = EqSymmetric
+                                        }
+                                    ]
+                                , conclusion = Var "x" :=: Var "y"
+                                , rule = EqTransitive
+                                }
+                            ]
+                        , conclusion = (Var "y" :=: Var "t") :->: (Var "x" :=: Var "y")
+                        , rule = ImpIntro 1
+                        }
+                    ]
+                , conclusion = (Var "x" :=: Var "t") :->: ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y"))
+                , rule = ImpIntro 2
+                }
+            ]
+        , conclusion = ForAll "z" ((Var "x" :=: Var "z") :->: ((Var "y" :=: Var "t") :->: (Var "x" :=: Var "y")))
+        , rule = ForAllIntro
         }
 
 curryDerivation :: Derivation
