@@ -368,7 +368,7 @@ verify' Inference {..} = do
             p <- onePremise "ForAllIntro" premises
             let [as] = assumptionsPerAntecedent
             case conclusion of
-                (ForAll v qf) -> do
+                ForAll v qf -> do
                     mt <- matchFormulas v qf p
                     case mt of
                         Nothing -> return as -- v does not appear free in qf
@@ -393,9 +393,64 @@ verify' Inference {..} = do
                             , " does not match a simple variable in the premise"
                             ]
                 _ -> Left "In ForAllIntro, conclusion must be a universal quantification"
-        ForAllElim -> undefined
-        ExistsIntro -> undefined
-        ExistsElim l -> undefined
+        ForAllElim -> do
+            p <- onePremise "ForAllElim" premises
+            case p of
+                ForAll v qf -> do
+                    mt <- matchFormulas v qf conclusion
+                    mergeAllAssumptionState
+                _ -> Left $ "In ForAllElim, premise must be a universal quantification"
+        ExistsIntro -> do
+            p <- onePremise "ExistsIntro" premises
+            case conclusion of
+                Exists v qf -> do
+                    mt <- matchFormulas v qf p
+                    mergeAllAssumptionState
+                _ -> Left $ "In ExistsIntro, conclusion must be an existential quantification"
+        ExistsElim l -> do
+            (p1, p2) <- twoPremises "ExistsIntro" premises
+            assert (p2 == conclusion) "In ExistsIntro, second premise must match conclusion"
+            let [as1, as2] = assumptionsPerAntecedent
+            a <- assertJust (Map.lookup l (notYetCanceled as2)) $ T.concat
+                [ "In ExistsIntro, did not find an assumption in the second antecedent with label "
+                , T.pack $ show l
+                ]
+            -- remove the canceled assumption from as2 to get as2'
+            let as2' = as2
+                    { notYetCanceled = Map.delete l $ notYetCanceled as2
+                    , canceledLabels = Set.insert l $ canceledLabels as2
+                    }
+            case p1 of
+                Exists v qf -> do
+                    mt <- matchFormulas v qf a
+                    case mt of
+                        Nothing -> return ()
+                        (Just (Var t)) -> do
+                            let uas = Map.elems $ notYetCanceled as2'
+                            let fvs = Set.unions $ map freeVarsInFormula uas
+                            assert (Set.notMember t fvs) $ T.concat
+                                [ "In ExistsElim, matched variable in first premise "
+                                , t
+                                , " appears free in an uncanceled assumption of the second antecedent"
+                                ]
+                            assert (Set.notMember t (freeVarsInFormula qf)) $ T.concat
+                                [ "In ExistsElim, matched variable in canceled assumption "
+                                , t
+                                , " appears free in quantified formula in first premise"
+                                ]
+                            assert (Set.notMember t (freeVarsInFormula p2)) $ T.concat
+                                [ "In ExistsElim, matched variable in canceled assumption "
+                                , t
+                                , " appears free in second premise (and conclusion)"
+                                ]
+                        -- allow match against a constant in canceled assumption?
+                        (Just _) -> Left $ T.concat
+                            [ "In ExistsElim, quantified variable "
+                            , v
+                            , " does not match a simple variable in the canceled assumption"
+                            ]
+                _ -> Left "In ExistsIntro, first premise must be an existential quantification"
+            mergeAssumptionState [as1, as2']
         EqIntro -> do
             () <- noPremises "EqIntro" premises
             case conclusion of
@@ -531,12 +586,15 @@ matchTerms var boundVars quantifiedTerm term =
         (Var v, t) -> do
             if var == v
                 then
-                    case t of
-                        (Var tv) -> do
-                            assert (not (Set.member tv boundVars)) $ "Quantified variable cannot match a bound variable"
-                            return (Just t)
-                        (Const _) -> return $ Just t
-                        _ -> Left "In forall introduction, quantified variable cannot match a compound term"
+                    let clashingVars = freeVarsInTerm t `Set.intersection` boundVars
+                    in
+                        if null clashingVars
+                            then return $ Just t
+                            else Left $ T.concat
+                                [ "Free variables in matched term ("
+                                , T.pack $ show t
+                                , ") would become bound by substitution"
+                                ]
                 else case t of
                     (Var tv) -> do
                         assert (v == tv) $ "Mismatched variable terms in nested terms"
