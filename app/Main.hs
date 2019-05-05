@@ -13,6 +13,9 @@ main = do
     print $ matchFormulas "z" f3 f2 -- this is not a valid forall introduction
     print $ matchFormulas "z" f5 f4
     print $ verify breakRule5
+    print $ verify eqElim
+    print $ verify eqTerm1
+    print $ verify eqTerm2
 
 f1 :: Formula
 f1 = pvar "A" :&: (ForAll "x" $ Var "x" :=: Var "x")
@@ -184,4 +187,49 @@ orElim =
             ]
         , conclusion = pvar "C" :|: pvar "D"
         , rule = OrElim 1
+        }
+
+eqElim :: Derivation
+eqElim =
+    Inference
+        { antecedents =
+            [ Assumption
+                { formula = Var "s" :=: Var "t"
+                , cancellationLabel = Nothing
+                }
+            , Assumption
+                { formula = Func "+" [Var "s", Var "s"] :=: Const "2"
+                , cancellationLabel = Nothing
+                }
+            ]
+        , conclusion = Func "+" [Var "t", Var "t"] :=: Const "2"
+        , rule = EqElim
+        }
+
+eqTerm1 :: Derivation
+eqTerm1 =
+    Inference
+        { antecedents =
+            [ Assumption
+                { formula = Var "a" :=: Func "+" [Var "a", Var "a"]
+                , cancellationLabel = Nothing
+                }
+            ]
+        , conclusion =
+            Func "+" [Var "a", Var "a"] :=:
+                Func "+" [Var "a", Func "+" [Var "a", Var "a"]]
+        , rule = EqTerm
+        }
+
+eqTerm2 :: Derivation
+eqTerm2 =
+    Inference
+        { antecedents =
+            [ Assumption
+                { formula = Func "+" [Var "a", Var "a"] :=: Func "+" [Var "a", Var "b"]
+                , cancellationLabel = Nothing
+                }
+            ]
+        , conclusion = Func "+" [Var "a", Var "a"] :=: Func "+" [Var "a", Var "b"]
+        , rule = EqTerm
         }

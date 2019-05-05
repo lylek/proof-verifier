@@ -459,7 +459,13 @@ verify' Inference {..} = do
                         "In EqIntro, left and right sides of conclusion must be identical"
                     mergeAllAssumptionState
                 _ -> Left "In EqIntro, conclusion must be an equality"
-        EqElim -> undefined
+        EqElim -> do
+            (p1, p2) <- twoPremises "EqElim" premises
+            case p1 of
+                p1l :=: p1r -> do
+                    inferFormula p1l p1r p2 conclusion
+                    mergeAllAssumptionState
+                _ -> Left "In EqElim, first premise must be an equality"
         EqSymmetric -> do
             p <- onePremise "EqSymmetric" premises
             case (p, conclusion) of
@@ -498,7 +504,13 @@ verify' Inference {..} = do
                     [ "In EqTransitive, both premises and conclusion"
                     , " must be equalities"
                     ]
-        EqTerm -> undefined
+        EqTerm -> do
+            p <- onePremise "EqTerm" premises
+            case (p, conclusion) of
+                (pl :=: pr, cl :=: cr) -> do
+                    inferTerm pl pr cl cr
+                    mergeAllAssumptionState
+                _ -> Left "In EqTerm, premise and conclusion must be equalities"
 
 noPremises :: Text -> [Formula] -> Either VerificationError ()
 noPremises ruleName premises =
@@ -623,3 +635,62 @@ mergeMatches var (Just t1) (Just t2) =
             ]
 mergeMatches _ mt1 Nothing = return mt1
 mergeMatches _ Nothing mt2 = return mt2
+
+inferFormula :: Term -> Term -> Formula -> Formula -> Either VerificationError ()
+inferFormula s t fs ft =
+    infer' fs ft
+    where
+        fvs = freeVarsInTerm s `Set.union` freeVarsInTerm t
+        infer' f1 f2 =
+            case (f1, f2) of
+                (Truth, Truth) -> return ()
+                (Falsehood, Falsehood) -> return ()
+                (f1l :&: f1r, f2l :&: f2r) -> do
+                    infer' f1l f2l
+                    infer' f1r f2r 
+                (f1l :|: f1r, f2l :|: f2r) -> do
+                    infer' f1l f2l
+                    infer' f1r f2r
+                (f1l :->: f1r, f2l :->: f2r) -> do
+                    infer' f1l f2l
+                    infer' f1r f2r
+                (f1l :<->: f1r, f2l :<->: f2r) -> do
+                    infer' f1l f2l
+                    infer' f1r f2r
+                (Not f1', Not f2') -> infer' f1' f2'
+                (ForAll qv1 qf1, ForAll qv2 qf2) -> do
+                    assert (qv1 == qv2) "Mismatched universal quantifier variables in nested formulas"
+                    if Set.member qv1 fvs
+                        then assert (qf1 == qf2) "Substitutions cannot be made when free variables are shadowed"
+                        else infer' qf1 qf2
+                (Exists qv1 qf1, Exists qv2 qf2) -> do
+                    assert (qv1 == qv2) "Mismatched existential quantifier variables in nested formulas"
+                    if Set.member qv1 fvs
+                        then assert (qf1 == qf2) "Substitutions cannot be made when free variables are shadowed"
+                        else infer' qf1 qf2
+                (t1l :=: t1r, t2l :=: t2r) -> do
+                    inferTerm s t t1l t2l
+                    inferTerm s t t1r t2r
+                (Rel r1 ts1, Rel r2 ts2) -> do
+                    assert (r1 == r2) $ "Mismatched relation names in nested formulas"
+                    assert (length ts1 == length ts2) $ "Mismatched relation argument list length in nested formulas"
+                    mapM_ (uncurry (inferTerm s t)) $ zip ts1 ts2
+                _ -> Left "Mismatched nested formulas"
+
+inferTerm :: Term -> Term -> Term -> Term -> Either VerificationError ()
+inferTerm s t rs rt =
+    if rs == s
+        then
+            assert (rt == t || rt == s) "Two terms cannot result from substitution of different terms into the same term"
+        else
+            case (rs, rt) of
+                (Func s1 ts1, Func s2 ts2) ->
+                    mapM_ (uncurry (inferTerm s t)) $ zip ts1 ts2
+                (_, _) | rs == rt -> return ()
+                       | otherwise -> Left $ T.concat
+                            [ "Terms "
+                            , T.pack $ show rs
+                            , " and "
+                            , T.pack $ show rt
+                            , " do not match"
+                            ]
