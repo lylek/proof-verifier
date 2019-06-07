@@ -90,6 +90,7 @@ data Rule
     | ImpElim
     | IffIntro Label
     | NotIntro Label
+    | NotElim
     | RAA Label
     | IffElimLeft
     | IffElimRight
@@ -335,6 +336,16 @@ verify' Inference {..} = do
                 { notYetCanceled = Map.delete l $ notYetCanceled as
                 , canceledLabels = Set.insert l $ canceledLabels as
                 }
+        NotElim -> do
+            (np1, p2) <- twoPremises "NotElim" premises
+            case np1 of
+                (Not p1) ->
+                    if p1 == p2
+                        then if conclusion == Falsehood
+                            then mergeAllAssumptionState
+                            else Left "In NotElim, conclusion must be falsehood"
+                        else Left "In NotElim, first premise must be the negation of the second premise"
+                _ -> Left "In NotElim, first premise must be a negation"
         RAA l -> do
             p <- onePremise "RAA" premises
             assert (p == Falsehood) $ "Premise in RAA must be Falsehood"

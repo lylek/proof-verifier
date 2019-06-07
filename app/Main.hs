@@ -16,6 +16,7 @@ main = do
     print $ verify eqElim
     print $ verify eqTerm1
     print $ verify eqTerm2
+    print $ verify notElim1
 
 f1 :: Formula
 f1 = pvar "A" :&: (ForAll "x" $ Var "x" :=: Var "x")
@@ -232,4 +233,21 @@ eqTerm2 =
             ]
         , conclusion = Func "+" [Var "a", Var "a"] :=: Func "+" [Var "a", Var "b"]
         , rule = EqTerm
+        }
+
+notElim1 :: Derivation
+notElim1 =
+    Inference
+        { antecedents =
+            [ Assumption
+                { formula = Not (pvar "P")
+                , cancellationLabel = Nothing
+                },
+              Assumption
+                { formula = pvar "P"
+                , cancellationLabel = Nothing
+                }
+            ]
+            , conclusion = Falsehood
+            , rule = NotElim
         }
